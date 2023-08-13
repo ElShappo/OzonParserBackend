@@ -52,6 +52,94 @@ app.get('/', (req, res) => {
   res.send(rawData);
 });
 
+function fullDomain(partialPath) {
+  console.log(partialPath);
+  let improvedPartialPath = partialPath.match(/product\/.+/);
+  let marketplaceDomain = "https://www.ozon.ru/";
+  return marketplaceDomain + improvedPartialPath;
+}
+
+app.get('/ozon/:mode', async (req, res) => {
+  let result = [];
+  const sortMethods = ["ozon_card_price", "price_desc", ""];
+  const productNamesSearch = JSON.parse(req.query.productNames);
+  let { mode } = req.params;
+
+  let url = new URL("https://www.ozon.ru/search");
+
+  url.searchParams.set("from_global", "true");
+
+  switch (mode) {
+    case "min":
+      url.searchParams.set("sorting", sortMethods[0]);
+      break;
+    case "max":
+      url.searchParams.set("sorting", sortMethods[1]);
+      break;
+    default: // i.e. sort by popularity
+      mode = "default";
+      break;
+  }
+
+  for (let productNameSearch of productNamesSearch) {
+    url.searchParams.set("text", `${productNameSearch}`);
+    
+    let response;
+    let html;
+
+    try {
+      response = await fetch(url);
+      html = await response.text();
+    } catch (e) {
+      console.error(`Error occurred when trying to fetch ${url}`);
+      console.error(e);
+    }
+
+    const parser = new DOMParser();
+    const htmlDocument = parser.parseFromString(html, "text/html");
+    const extremum = htmlDocument.documentElement.querySelector(
+      ".widget-search-result-container > div > div"
+    );
+    let pricesSection;
+    let link;
+    try {
+      pricesSection = extremum.querySelector(":scope > div > div");
+      link = extremum.querySelector(":scope > div > a");
+    } catch (error) {
+      console.error(
+        `Could not get pricesSection & link (${mode}) for ${productName}`
+      );
+      console.error(productName);
+      console.error(url);
+      console.error(html);
+      console.error(htmlDocument);
+      return [null, null, null, null];
+    }
+    let name = link.querySelector(":scope > div > span");
+
+    let partialPath = link.href;
+    let productLink = fullDomain(partialPath);
+
+    let prices = pricesSection.querySelector(":scope > div");
+    let productPriceWithSale =
+      prices.querySelectorAll(":scope > span")[0].innerHTML;
+
+    let productPriceWithoutSale = null;
+    try {
+      // sometimes there is no sale at all, if that happens, we trigger a warning
+      productPriceWithoutSale =
+        prices.querySelectorAll(":scope > span")[1].innerHTML;
+    } catch (error) {
+      console.warn(
+        `Could not get a price without sale (${mode}) for ${productName}`
+      );
+    }
+    let productName = name.innerHTML;
+    result.push({productName, productPriceWithSale, productPriceWithoutSale, productLink});
+  }
+  res.send(result);
+})
+
 // can get details about single or multiple products
 app.get('/wb/:mode', async (req, res) => {
   let result = [];
