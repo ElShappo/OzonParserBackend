@@ -52,6 +52,98 @@ app.get('/', (req, res) => {
   res.send(rawData);
 });
 
+// can get details about single or multiple products
+app.get('/wb/:mode', async (req, res) => {
+  let result = [];
+  const sortMethods = ["priceup", "pricedown"];
+  const productNamesSearch = JSON.parse(req.query.productNames);
+  let { mode } = req.params;
+
+  let url = new URL("https://www.wildberries.ru/catalog/0/search.aspx");
+  switch (mode) {
+    case "min":
+      url.searchParams.set("sort", sortMethods[0]);
+      break;
+    case "max":
+      url.searchParams.set("sort", sortMethods[1]);
+      break;
+    default: // i.e. sort by popularity
+      mode = "default";
+      break;
+  }
+  const browser = await puppeteer.launch({ headless: "new" });
+  const page = await browser.newPage();
+  page.setDefaultNavigationTimeout(2 * 60 * 100);
+
+  for (let productNameSearch of productNamesSearch) {
+    url.searchParams.set("search", productNameSearch);
+    await page.goto(url);
+    await page.waitForSelector(".product-card-list");
+    // await page.screenshot({ path: "productsList.png" });
+  
+    const productSelector = ".product-card-list > article > div > a";
+    await page.waitForSelector(productSelector);
+    // await page.screenshot({path: 'productsListRendered.png'});
+  
+    const productLink = await page.evaluate(() => {
+      return document.querySelector(".product-card-list > article > div > a").href;
+    });
+  
+    console.log(productLink);
+  
+    // page.setViewport({width: 1920, height: 1080});
+  
+    await page.goto(productLink);
+    await Promise.all([page.waitForSelector(".product-page__header > h1"), page.waitForSelector(".price-block__final-price")]);
+    // await page.screenshot({path: "itemPage.png"});
+  
+    let productName;
+  
+    try {
+      productName = await page.evaluate(() => {
+        return document.querySelector(".product-page__header > h1").textContent;
+      });
+    } catch (error) {
+      productName = null;
+      console.error(error);
+      console.error(`Couldn\'t get productName for ${productNameSearch} with mode = ${mode}`);
+    }
+  
+    let productPriceWithSale;
+  
+    try {
+      productPriceWithSale = await page.evaluate(() => {
+        return document.querySelector(".price-block__final-price").textContent.trim();
+      });
+    } catch (error) {
+      productPriceWithSale = null;
+      console.error(error);
+      console.error(`Couldn\'t get productPriceWithSale for ${productNameSearch} with mode = ${mode}`);
+    }
+  
+    let productPriceWithoutSale;
+  
+    try {
+      productPriceWithoutSale = await page.evaluate(() => {
+        return document.querySelector(".price-block__old-price").textContent.trim();
+      });
+    } catch (error) {
+      productPriceWithoutSale = null;
+      console.error(error);
+      console.error(`Couldn\'t get productPriceWithoutSale for ${productNameSearch} with mode = ${mode}`);
+    }
+  
+    console.log(productName);
+    console.log(productPriceWithSale);
+    console.log(productPriceWithoutSale);
+
+    result.push({productName, productPriceWithSale, productPriceWithoutSale, productLink});
+  }
+  browser.close();
+  res.send(result);
+})
+
+// can get details about single product
 app.get('/wb/:productNameSearch/:mode', async (req, res) => {
   const sortMethods = ["priceup", "pricedown"];
 
@@ -78,12 +170,12 @@ app.get('/wb/:productNameSearch/:mode', async (req, res) => {
   page.setDefaultNavigationTimeout(2 * 60 * 1000);
 
   await page.goto(url);
-  const productsList = await page.waitForSelector(".product-card-list");
-  await page.screenshot({ path: "productsList.png" });
+  await page.waitForSelector(".product-card-list");
+  // await page.screenshot({ path: "productsList.png" });
 
   const productSelector = ".product-card-list > article > div > a";
   await page.waitForSelector(productSelector);
-  await page.screenshot({path: 'productsListRendered.png'}); 
+  // await page.screenshot({path: 'productsListRendered.png'});
 
   const productLink = await page.evaluate(() => {
     return document.querySelector(".product-card-list > article > div > a").href;
@@ -91,27 +183,53 @@ app.get('/wb/:productNameSearch/:mode', async (req, res) => {
 
   console.log(productLink);
 
-  page.setViewport({width: 1920, height: 1080});
+  // page.setViewport({width: 1920, height: 1080});
 
   await page.goto(productLink);
-  await Promise.all([page.waitForSelector(".product-page__header > h1"), page.waitForSelector(".price-block__final-price"), page.waitForSelector(".price-block__old-price")]);
-  await page.screenshot({path: "itemPage.png"});
+  await Promise.all([page.waitForSelector(".product-page__header > h1"), page.waitForSelector(".price-block__final-price")]);
+  // await page.screenshot({path: "itemPage.png"});
 
-  const productName = await page.evaluate(() => {
-    return document.querySelector(".product-page__header > h1").textContent;
-  });
+  let productName;
 
-  const productPriceWithSale = await page.evaluate(() => {
-    return document.querySelector(".price-block__final-price").textContent.trim();
-  });
+  try {
+    productName = await page.evaluate(() => {
+      return document.querySelector(".product-page__header > h1").textContent;
+    });
+  } catch (error) {
+    productName = null;
+    console.error(error);
+    console.error(`Couldn\'t get productName for ${productNameSearch} with mode = ${mode}`);
+  }
 
-  const productPriceWithoutSale = await page.evaluate(() => {
-    return document.querySelector(".price-block__old-price").textContent.trim();
-  });
+  let productPriceWithSale;
+
+  try {
+    productPriceWithSale = await page.evaluate(() => {
+      return document.querySelector(".price-block__final-price").textContent.trim();
+    });
+  } catch (error) {
+    productPriceWithSale = null;
+    console.error(error);
+    console.error(`Couldn\'t get productPriceWithSale for ${productNameSearch} with mode = ${mode}`);
+  }
+
+  let productPriceWithoutSale;
+
+  try {
+    productPriceWithoutSale = await page.evaluate(() => {
+      return document.querySelector(".price-block__old-price").textContent.trim();
+    });
+  } catch (error) {
+    productPriceWithoutSale = null;
+    console.error(error);
+    console.error(`Couldn\'t get productPriceWithoutSale for ${productNameSearch} with mode = ${mode}`);
+  }
 
   console.log(productName);
   console.log(productPriceWithSale);
   console.log(productPriceWithoutSale);
+
+  browser.close();
 
   res.send([productName, productPriceWithSale, productPriceWithoutSale, productLink]);
 })
